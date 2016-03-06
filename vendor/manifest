@@ -1,0 +1,78 @@
+{
+	"version": 0,
+	"dependencies": [
+		{
+			"importpath": "github.com/Sirupsen/logrus",
+			"repository": "https://github.com/Sirupsen/logrus",
+			"revision": "219c8cb75c258c552e999735be6df753ffc7afdc",
+			"branch": "master"
+		},
+		{
+			"importpath": "github.com/boltdb/bolt",
+			"repository": "https://github.com/boltdb/bolt",
+			"revision": "a5ebf41fd5bcd729b2ec2107ad35bbc7b67da4c0",
+			"branch": "master"
+		},
+		{
+			"importpath": "github.com/codegangsta/cli",
+			"repository": "https://github.com/codegangsta/cli",
+			"revision": "a2943485b110df8842045ae0600047f88a3a56a1",
+			"branch": "master"
+		},
+		{
+			"importpath": "github.com/gorilla/context",
+			"repository": "https://github.com/gorilla/context",
+			"revision": "1ea25387ff6f684839d82767c1733ff4d4d15d0a",
+			"branch": "master"
+		},
+		{
+			"importpath": "github.com/gorilla/handlers",
+			"repository": "https://github.com/gorilla/handlers",
+			"revision": "ee54c7b44cab12289237fb8631314790076e728b",
+			"branch": "master"
+		},
+		{
+			"importpath": "github.com/gorilla/mux",
+			"repository": "https://github.com/gorilla/mux",
+			"revision": "c9e326e2bdec29039a3761c07bece13133863e1e",
+			"branch": "master"
+		},
+		{
+			"importpath": "github.com/gorilla/rpc",
+			"repository": "https://github.com/gorilla/rpc",
+			"revision": "5bc359e9ad5cb47312fe2ef8d0651dafab381f27",
+			"branch": "master"
+		},
+		{
+			"importpath": "github.com/gorilla/rpc/json",
+			"repository": "https://github.com/gorilla/rpc",
+			"revision": "5bc359e9ad5cb47312fe2ef8d0651dafab381f27",
+			"branch": "master",
+			"path": "/json"
+		},
+		{
+			"importpath": "github.com/pborman/uuid",
+			"repository": "https://github.com/pborman/uuid",
+			"revision": "c55201b036063326c5b1b89ccfe45a184973d073",
+			"branch": "master"
+		},
+		{
+			"importpath": "github.com/speps/go-hashids",
+			"repository": "https://github.com/speps/go-hashids",
+			"revision": "d1d57a886aa7e3ef6092b70ceab077e35ee8e0ce",
+			"branch": "master"
+		},
+		{
+			"importpath": "gopkg.in/airbrake/gobrake.v2",
+			"repository": "https://gopkg.in/airbrake/gobrake.v2",
+			"revision": "c9d51adc624b5cc4c1bf8de730a09af4878ffe2d",
+			"branch": "master"
+		},
+		{
+			"importpath": "gopkg.in/gemnasium/logrus-airbrake-hook.v2",
+			"repository": "https://gopkg.in/gemnasium/logrus-airbrake-hook.v2",
+			"revision": "31e6fd4bd5a98d8ee7673d24bc54ec73c31810dd",
+			"branch": "master"
+		}
+	]
+}
