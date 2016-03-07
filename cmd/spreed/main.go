@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"os/signal"
+	"runtime/debug"
+	"syscall"
 
 	log "github.com/Sirupsen/logrus"
 	"github.com/codegangsta/cli"
@@ -41,7 +44,7 @@ type Server struct {
 func NewServer(ctx *cli.Context) *Server {
 	dataDir := ctx.String(dataDirFlag.Name)
 	store := storage.NewFileStore(dataDir, ctx.String(urlPrefixFlag.Name))
-	boltKV, err := backends.NewBoltKV(ctx.String(dbFileFlag.Name), ctx.String(dbBucketFlag.Name))
+	boltKV, err := backends.NewBoltKV(ctx.String(dbFileFlag.Name), ctx.String(dbBucketFlag.Name), ctx.String(urlPrefixFlag.Name))
 	if err != nil {
 		log.WithError(err).Fatal("unable to connect to KV")
 	}
@@ -56,8 +59,10 @@ func NewServer(ctx *cli.Context) *Server {
 }
 
 func (s *Server) Run() {
+	go handleSignals()
 	r := mux.NewRouter()
 	r.HandleFunc("/", s.IndexHandler)
+	r.HandleFunc("/p/{id}", s.DisplayPageHandler)
 	r.PathPrefix("/r").Handler(http.StripPrefix("/r/", http.FileServer(http.Dir(s.DataDir))))
 
 	api := r.PathPrefix("/api").Subrouter()
@@ -83,6 +88,25 @@ func (s *Server) ImageHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (s *Server) DisplayPageHandler(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	id := vars["id"]
+	file, err := s.KV.GetFileById(id)
+	ll := log.WithFields(log.Fields{"id": id})
+	if err != nil {
+		ll.WithError(err).Error("error getting file")
+		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+		return
+	}
+
+	if file == nil {
+		http.Error(w, http.StatusText(http.StatusNotFound), http.StatusNotFound)
+		return
+	}
+
+	http.Redirect(w, r, file.DirectUrl, http.StatusFound)
+}
+
 func (s *Server) ListHandler(w http.ResponseWriter, r *http.Request) {
 	files, err := s.KV.ListFiles()
 	if err != nil {
@@ -104,8 +128,10 @@ func (s *Server) ListHandler(w http.ResponseWriter, r *http.Request) {
 func (s *Server) UploadHandler(w http.ResponseWriter, r *http.Request) {
 	filename := r.FormValue("filename")
 	src, _, err := r.FormFile("file")
+	ll := log.WithFields(log.Fields{"filename": filename})
+
 	if err != nil {
-		log.WithError(err).Error("error reading uploaded file")
+		ll.WithError(err).Error("error reading uploaded file")
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
@@ -113,25 +139,49 @@ func (s *Server) UploadHandler(w http.ResponseWriter, r *http.Request) {
 
 	file, err := s.Store.Save(src, filename)
 	if err != nil {
-		log.WithError(err).Error("error storing file to backend")
+		ll.WithError(err).Error("error storing file to backend")
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
 
 	err = s.KV.PutFile(file)
 	if err != nil {
-		log.WithError(err).Error("error storing file to backend")
+		ll.WithError(err).Error("error storing file to db")
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
 
 	jsonFile, err := json.Marshal(file)
 	if err != nil {
-		log.WithError(err).Error("error encoding file object to json")
+		ll.WithError(err).Error("error encoding file object to json")
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
 
 	w.WriteHeader(http.StatusCreated)
 	fmt.Fprint(w, string(jsonFile))
+}
+
+func handleSignals() {
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP, syscall.SIGUSR1, syscall.SIGINT)
+	defer signal.Stop(sig)
+	for s := range sig {
+		switch s {
+		case syscall.SIGUSR1:
+			debug.PrintStack()
+		case syscall.SIGHUP:
+			log.Warn("shutting down due to signal")
+			os.Exit(1)
+			return
+		case syscall.SIGINT:
+			log.Warn("shutting down due to signal")
+			os.Exit(0)
+			return
+		default:
+			log.WithFields(log.Fields{"signal": s}).Warn("received signal")
+			os.Exit(2)
+			return
+		}
+	}
 }

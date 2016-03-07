@@ -3,6 +3,7 @@ package backends
 import (
 	"encoding/json"
 	"fmt"
+	"time"
 
 	log "github.com/Sirupsen/logrus"
 	"github.com/boltdb/bolt"
@@ -26,11 +27,12 @@ func init() {
 }
 
 type BoltKV struct {
-	db     *bolt.DB
-	bucket string
+	db        *bolt.DB
+	bucket    string
+	urlPrefix string
 }
 
-func NewBoltKV(dbFile, dbBucketName string) (*BoltKV, error) {
+func NewBoltKV(dbFile, dbBucketName, urlPrefix string) (*BoltKV, error) {
 	db, err := bolt.Open(dbFile, 0600, nil)
 	if err != nil {
 		log.WithError(err).Error("could not open database file")
@@ -47,16 +49,19 @@ func NewBoltKV(dbFile, dbBucketName string) (*BoltKV, error) {
 	})
 
 	return &BoltKV{
-		db:     db,
-		bucket: dbBucketName,
+		db:        db,
+		bucket:    dbBucketName,
+		urlPrefix: urlPrefix,
 	}, nil
 }
 
 func (b *BoltKV) PutFile(file *metadata.File) error {
 	err := b.db.Update(func(tx *bolt.Tx) error {
-		b := tx.Bucket([]byte(b.bucket))
-		id, _ := b.NextSequence()
+		bkt := tx.Bucket([]byte(b.bucket))
+		id, _ := bkt.NextSequence()
 		file.Id, _ = h.Encode([]int{int(id)})
+		file.Url = b.urlPrefix + "/p/" + file.Id
+		file.CreatedAt = time.Now()
 
 		jsonFile, err := json.Marshal(file)
 		if err != nil {
@@ -64,7 +69,7 @@ func (b *BoltKV) PutFile(file *metadata.File) error {
 			return err
 		}
 
-		err = b.Put([]byte(file.Id), jsonFile)
+		err = bkt.Put([]byte(file.Id), jsonFile)
 		if err != nil {
 			log.WithError(err).Error("could not PutFile in BoltDB")
 			return err
@@ -101,4 +106,23 @@ func (b *BoltKV) ListFiles() ([]metadata.File, error) {
 	}
 
 	return files, nil
+}
+
+func (b *BoltKV) GetFileById(id string) (*metadata.File, error) {
+	var file *metadata.File
+	err := b.db.View(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte(b.bucket))
+		v := b.Get([]byte(id))
+		err := json.Unmarshal(v, &file)
+		if err != nil {
+			return err
+		}
+		return nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	return file, nil
 }

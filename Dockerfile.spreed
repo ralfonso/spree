@@ -1,0 +1,4 @@
+FROM golang:1.6
+EXPOSE 4285
+ADD spreed /spreed
+CMD ["/spreed"]

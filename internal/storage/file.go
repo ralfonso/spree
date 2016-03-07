@@ -53,8 +53,8 @@ func (s *FileStore) Save(src io.Reader, filename string) (*metadata.File, error)
 	}
 
 	file := &metadata.File{
-		FullPath: outputFilename,
-		Url:      s.UrlPrefix + "/r/" + filename,
+		FullPath:  outputFilename,
+		DirectUrl: s.UrlPrefix + "/r/" + filename,
 	}
 
 	return file, nil
