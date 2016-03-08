@@ -104,6 +104,10 @@ func (s *Server) DisplayPageHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// increment the views asynchronously
+	file.Views++
+	go s.KV.PutFile(file)
+
 	http.Redirect(w, r, file.DirectUrl, http.StatusFound)
 }
 

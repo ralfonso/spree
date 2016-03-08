@@ -58,10 +58,12 @@ func NewBoltKV(dbFile, dbBucketName, urlPrefix string) (*BoltKV, error) {
 func (b *BoltKV) PutFile(file *metadata.File) error {
 	err := b.db.Update(func(tx *bolt.Tx) error {
 		bkt := tx.Bucket([]byte(b.bucket))
-		id, _ := bkt.NextSequence()
-		file.Id, _ = h.Encode([]int{int(id)})
-		file.Url = b.urlPrefix + "/p/" + file.Id
-		file.CreatedAt = time.Now()
+		if file.Id == "" {
+			id, _ := bkt.NextSequence()
+			file.Id, _ = h.Encode([]int{int(id)})
+			file.Url = b.urlPrefix + "/p/" + file.Id
+			file.CreatedAt = time.Now()
+		}
 
 		jsonFile, err := json.Marshal(file)
 		if err != nil {
