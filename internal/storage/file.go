@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"time"
 
+	log "github.com/Sirupsen/logrus"
 	"github.com/ralfonso/spree/internal/metadata"
 )
 
@@ -28,6 +29,7 @@ func (s *FileStore) Save(src io.Reader, filename string) (*metadata.File, error)
 	filename = fmt.Sprintf("%d_%s", nano, filename)
 	outputFilename := filepath.Join(s.DataDir, filename)
 	outputFile, err := os.Create(outputFilename)
+	defer outputFile.Close()
 	if err != nil {
 		return nil, err
 	}
@@ -36,6 +38,7 @@ func (s *FileStore) Save(src io.Reader, filename string) (*metadata.File, error)
 	bufRead := bufio.NewReader(src)
 
 	buf := make([]byte, 1024)
+	var bytesRead, bytesWritten int
 	for {
 		// read a chunk
 		n, err := bufRead.Read(buf)
@@ -46,11 +49,20 @@ func (s *FileStore) Save(src io.Reader, filename string) (*metadata.File, error)
 			break
 		}
 
+		bytesRead += n
+
 		// write a chunk
-		if _, err := bufWrite.Write(buf[:n]); err != nil {
+		var w int
+		if w, err = bufWrite.Write(buf[:n]); err != nil {
 			return nil, err
 		}
+
+		bytesWritten += w
 	}
+
+	bufWrite.Flush()
+
+	log.WithFields(log.Fields{"file.name": filename, "bytes.written": bytesWritten, "bytes.read": bytesRead}).Info("File stored.")
 
 	file := &metadata.File{
 		FullPath:  outputFilename,

@@ -1,4 +1,4 @@
-FROM golang:1.6
+FROM alpine
 EXPOSE 4285
 ADD spreed /spreed
 CMD ["/spreed"]

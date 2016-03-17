@@ -5,10 +5,11 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/ralfonso/spree/internal/metadata"
+
 	log "github.com/Sirupsen/logrus"
 	"github.com/boltdb/bolt"
-	"github.com/ralfonso/spree/internal/metadata"
-	"github.com/speps/go-hashids"
+	hashids "github.com/speps/go-hashids"
 )
 
 const (
@@ -53,6 +54,11 @@ func NewBoltKV(dbFile, dbBucketName, urlPrefix string) (*BoltKV, error) {
 		bucket:    dbBucketName,
 		urlPrefix: urlPrefix,
 	}, nil
+}
+
+func (b *BoltKV) Close() error {
+	log.Info("Shutting down BoltDB")
+	return b.db.Close()
 }
 
 func (b *BoltKV) PutFile(file *metadata.File) error {
@@ -127,4 +133,33 @@ func (b *BoltKV) GetFileById(id string) (*metadata.File, error) {
 	}
 
 	return file, nil
+}
+
+func (b *BoltKV) IncrementViews(id string) {
+	var file *metadata.File
+	b.db.Update(func(tx *bolt.Tx) error {
+		bkt := tx.Bucket([]byte(b.bucket))
+		v := bkt.Get([]byte(id))
+		err := json.Unmarshal(v, &file)
+
+		if err != nil {
+			return err
+		}
+
+		file.Views++
+
+		jsonFile, err := json.Marshal(file)
+		if err != nil {
+			log.WithError(err).Error("could not marshal json file in IncrementViews")
+			return err
+		}
+
+		err = bkt.Put([]byte(file.Id), jsonFile)
+		if err != nil {
+			log.WithError(err).Error("could not PutFile in IncrementViews")
+			return err
+		}
+
+		return nil
+	})
 }

@@ -59,7 +59,14 @@ func NewServer(ctx *cli.Context) *Server {
 }
 
 func (s *Server) Run() {
-	go handleSignals()
+	shutdownFn := func() {
+		err := s.KV.Close()
+		if err != nil {
+			log.WithError(err).Error("Error closing KV DB")
+		}
+	}
+
+	go handleSignals(shutdownFn)
 	r := mux.NewRouter()
 	r.HandleFunc("/", s.IndexHandler)
 	r.HandleFunc("/p/{id}", s.DisplayPageHandler)
@@ -166,7 +173,7 @@ func (s *Server) UploadHandler(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprint(w, string(jsonFile))
 }
 
-func handleSignals() {
+func handleSignals(shutdownFn func()) {
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP, syscall.SIGUSR1, syscall.SIGINT)
 	defer signal.Stop(sig)
@@ -176,14 +183,17 @@ func handleSignals() {
 			debug.PrintStack()
 		case syscall.SIGHUP:
 			log.Warn("shutting down due to signal")
+			shutdownFn()
 			os.Exit(1)
 			return
 		case syscall.SIGINT:
 			log.Warn("shutting down due to signal")
+			shutdownFn()
 			os.Exit(0)
 			return
 		default:
 			log.WithFields(log.Fields{"signal": s}).Warn("received signal")
+			shutdownFn()
 			os.Exit(2)
 			return
 		}

@@ -6,14 +6,14 @@ all: spreed spree-client
 spreed:
 	docker run --rm -v $(spree_dir):/go/src/github.com/ralfonso/spree \
 		-w /go/src/github.com/ralfonso/spree \
-		-it golang:1.6 \
+		-it golang:1.6-alpine \
 		go build -o spreed github.com/ralfonso/spree/cmd/spreed
 .PHONY: spreed
 
 spree-client:
 	docker run --rm -v $(spree_dir):/go/src/github.com/ralfonso/spree \
 		-w /go/src/github.com/ralfonso/spree \
-		-it golang:1.6 \
+		-it golang:1.6-alpine \
 		go build -o spree-client github.com/ralfonso/spree/cmd/spree-client
 .PHONY: spree-client
 
