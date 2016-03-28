@@ -8,31 +8,34 @@ import (
 	"mime/multipart"
 	"net/http"
 	"os"
+	"os/user"
 	"path"
+	"path/filepath"
 
-	log "github.com/Sirupsen/logrus"
 	"github.com/codegangsta/cli"
+	"github.com/codegangsta/cli/altsrc"
 )
 
 var (
 	// global flags
-	uriFlag = cli.StringFlag{
-		Name:  "uri",
-		Value: "http://localhost:4285/api/image",
-		Usage: "URI for upload",
-	}
-	authTokenFlag = cli.StringFlag{
-		Name:  "auth.token",
-		Value: "",
-		Usage: "The token to use in the auth header",
+	cfgFlag = cli.StringFlag{
+		Name: "cfg",
 	}
 
-	// subcommand flags
-	srcFlag = cli.StringFlag{
-		Name:  "src",
-		Value: "-",
-		Usage: "The src file to upload. \"-\" for stdin",
-	}
+	uriFlag = altsrc.NewStringFlag(cli.StringFlag{
+		Name:   "uri",
+		Value:  "http://localhost:4285/api/image",
+		Usage:  "URI for upload",
+		EnvVar: "SPREE_URI",
+	})
+
+	authTokenFlag = altsrc.NewStringFlag(cli.StringFlag{
+		Name:   "auth.token",
+		Value:  "",
+		Usage:  "The token to use in the auth header",
+		EnvVar: "SPREE_AUTH_TOKEN",
+	})
+
 	filenameFlag = cli.StringFlag{
 		Name:  "file.name",
 		Value: "",
@@ -40,37 +43,47 @@ var (
 	}
 )
 
-var (
+var Commands = []cli.Command{}
+
+func init() {
+	usr, _ := user.Current()
+	cfgFlag.Value = filepath.Join(usr.HomeDir, ".config", "spree-client.yaml")
+
 	// commands
-	uploadCmd = cli.Command{
+	uploadCmd := cli.Command{
 		Name:   "upload",
 		Usage:  "upload to the server",
 		Action: UploadCommand,
 		Flags: []cli.Flag{
+			cfgFlag,
 			uriFlag,
-			srcFlag,
 			filenameFlag,
 			authTokenFlag,
 		},
 	}
-)
 
-var Commands = []cli.Command{
-	uploadCmd,
+	uploadCmd.Before = altsrc.InitInputSourceWithContext(uploadCmd.Flags, altsrc.NewYamlSourceFromFlagFunc("cfg"))
+	Commands = append(Commands, uploadCmd)
 }
 
 func UploadCommand(ctx *cli.Context) {
 	uri := ctx.String(uriFlag.Name)
 	filename := ctx.String(filenameFlag.Name)
 	authToken := ctx.String(authTokenFlag.Name)
-	src := ctx.String(srcFlag.Name)
+	src := ctx.Args().First()
+
+	if src == "" {
+		fmt.Println("You must specify a source file or \"-\" for stdin")
+		os.Exit(1)
+	}
 
 	var reader io.Reader
 	var err error
 
 	if src == "-" {
 		if filename == "" {
-			log.Fatal("You must specify \"file.name\" when using stdin")
+			fmt.Println("You must specify \"file.name\" when using stdin")
+			os.Exit(1)
 		}
 		reader = os.Stdin
 	} else {
@@ -79,13 +92,17 @@ func UploadCommand(ctx *cli.Context) {
 		}
 		reader, err = os.Open(src)
 		if err != nil {
-			log.WithError(err).Fatal("could not open src file")
+			fmt.Println(err)
+			fmt.Println("could not open src file")
+			os.Exit(1)
 		}
 	}
 
 	contents, err := ioutil.ReadAll(reader)
 	if err != nil {
-		log.WithError(err).Fatal("could not read src file")
+		fmt.Println(err)
+		fmt.Println("could not read src file")
+		os.Exit(1)
 	}
 
 	body := new(bytes.Buffer)
@@ -93,19 +110,23 @@ func UploadCommand(ctx *cli.Context) {
 
 	part, err := writer.CreateFormFile("file", filename)
 	if err != nil {
-		log.WithError(err).Fatalf("Could not create multipart writer from file %v\n", src)
+		fmt.Println(err)
+		fmt.Printf("Could not create multipart writer from file %v\n", src)
+		os.Exit(1)
 	}
 
 	part.Write(contents)
 	_ = writer.WriteField("filename", filename)
 	err = writer.Close()
 	if err != nil {
-		log.WithError(err).Fatalf("Could not close multipart writer for file %v\n", src)
+		fmt.Printf("Could not close multipart writer for file %v\n", src)
+		os.Exit(1)
 	}
 
 	req, err := http.NewRequest("POST", uri, body)
 	if err != nil {
-		log.WithError(err).Fatalf("Error creating upload request for file %v\n", src)
+		fmt.Printf("Error creating upload request for file %v\n", src)
+		os.Exit(1)
 	}
 
 	req.Header.Set("X-Auth-Token", authToken)
@@ -115,13 +136,15 @@ func UploadCommand(ctx *cli.Context) {
 
 	resp, err := client.Do(req)
 	if err != nil {
-		log.WithError(err).Fatalf("Error making HTTP request to %v for file %v\n", uri, src)
+		fmt.Printf("Error making HTTP request to %v for file %v\n", uri, src)
+		os.Exit(1)
 	}
 	defer resp.Body.Close()
 
 	respBody, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		log.WithError(err).Fatalf("Error reading response body for file %v\n", src)
+		fmt.Printf("Error reading response body for file %v\n", src)
+		os.Exit(1)
 	}
 
 	fmt.Println(string(respBody))
