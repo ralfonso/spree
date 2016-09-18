@@ -1,201 +1,83 @@
 package main
 
 import (
-	"encoding/json"
-	"fmt"
-	"net/http"
+	"crypto/tls"
+	"crypto/x509"
+	"io/ioutil"
+	"math/rand"
 	"os"
-	"os/signal"
-	"runtime/debug"
-	"syscall"
+	"time"
 
-	log "github.com/Sirupsen/logrus"
+	"google.golang.org/grpc"
+
 	"github.com/codegangsta/cli"
-	"github.com/gorilla/handlers"
-	"github.com/gorilla/mux"
-	"github.com/ralfonso/spree/internal/auth"
-	"github.com/ralfonso/spree/internal/metadata"
-	"github.com/ralfonso/spree/internal/metadata/backends"
-	"github.com/ralfonso/spree/internal/storage"
+	"github.com/ralfonso/spree"
+	"github.com/uber-go/zap"
 )
 
+var Version = "0.2.0"
+
 func main() {
-	log.SetFormatter(&log.JSONFormatter{})
+	rand.Seed(time.Now().UnixNano())
 	app := cli.NewApp()
 	app.Flags = GlobalFlags
 	app.Name = "spree"
 	app.Usage = "upload stuff"
-	app.Action = func(c *cli.Context) {
-		server := NewServer(c)
-		server.Run()
-	}
-
+	app.Action = serve
 	app.Run(os.Args)
 }
 
-type Server struct {
-	Addr      string
-	DataDir   string
-	AuthToken string
-	Store     storage.Store
-	KV        metadata.Store
-}
+func serve(ctx *cli.Context) {
+	ll := zap.New(zap.NewJSONEncoder())
+	boltKV, err := spree.NewBoltKV(ctx.String(dbFileFlag.Name), ctx.String(dbBucketFlag.Name), ll)
+	if err != nil {
+		ll.Fatal("unable to create BoltKV", zap.Error(err))
+	}
 
-func NewServer(ctx *cli.Context) *Server {
 	dataDir := ctx.String(dataDirFlag.Name)
-	store := storage.NewFileStore(dataDir, ctx.String(urlPrefixFlag.Name))
-	boltKV, err := backends.NewBoltKV(ctx.String(dbFileFlag.Name), ctx.String(dbBucketFlag.Name), ctx.String(urlPrefixFlag.Name))
+	store, err := spree.NewFileStorage(dataDir)
 	if err != nil {
-		log.WithError(err).Fatal("unable to connect to KV")
+		ll.Fatal("unable to create FileStore", zap.Error(err))
 	}
 
-	return &Server{
-		Addr:      ctx.String(addrFlag.Name),
-		DataDir:   dataDir,
-		Store:     store,
-		KV:        boltKV,
-		AuthToken: ctx.String(authTokenFlag.Name),
-	}
-}
+	server := spree.NewServer(boltKV, store, ll)
+	rpcAddr := ctx.GlobalString(rpcAddrFlag.Name)
+	caCertFile := ctx.GlobalString(caCertFileFlag.Name)
+	certFile := ctx.GlobalString(certFileFlag.Name)
+	keyFile := ctx.GlobalString(keyFileFlag.Name)
 
-func (s *Server) Run() {
-	shutdownFn := func() {
-		err := s.KV.Close()
-		if err != nil {
-			log.WithError(err).Error("Error closing KV DB")
-		}
+	if caCertFile == "" || certFile == "" || keyFile == "" {
+		ll.Fatal("must have CA cert, server cert, and server key")
 	}
 
-	go handleSignals(shutdownFn)
-	r := mux.NewRouter()
-	r.HandleFunc("/", s.IndexHandler)
-	r.HandleFunc("/p/{id}", s.DisplayPageHandler)
-	r.PathPrefix("/r").Handler(http.StripPrefix("/r/", http.FileServer(http.Dir(s.DataDir))))
-
-	api := r.PathPrefix("/api").Subrouter()
-	api.HandleFunc("/image", auth.AuthHandler(s.AuthToken, s.ImageHandler))
-
-	log.WithFields(log.Fields{"addr": s.Addr}).Info("Starting HTTP server")
-
-	loggingRouter := handlers.LoggingHandler(os.Stdout, r)
-	log.Fatal(http.ListenAndServe(s.Addr, loggingRouter))
-}
-
-func (s *Server) IndexHandler(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "text/html")
-	w.Write([]byte("<img src=\"http://thumbs1.ebaystatic.com/d/l225/m/mwtBoKyCDL2DSVbHojb7KNQ.jpg\" style=\"width:100%; height:100%\">"))
-}
-
-func (s *Server) ImageHandler(w http.ResponseWriter, r *http.Request) {
-	switch r.Method {
-	case "GET":
-		s.ListHandler(w, r)
-	case "POST":
-		s.UploadHandler(w, r)
-	}
-}
-
-func (s *Server) DisplayPageHandler(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	id := vars["id"]
-	file, err := s.KV.GetFileById(id)
-	ll := log.WithFields(log.Fields{"id": id})
+	cert, err := tls.LoadX509KeyPair(certFile, keyFile)
 	if err != nil {
-		ll.WithError(err).Error("error getting file")
-		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
-		return
+		ll.Fatal("failed to load keypair", zap.Error(err))
 	}
+	tlsConfig := &tls.Config{Certificates: []tls.Certificate{cert}}
 
-	if file == nil {
-		http.Error(w, http.StatusText(http.StatusNotFound), http.StatusNotFound)
-		return
-	}
-
-	// increment the views asynchronously
-	file.Views++
-	go s.KV.PutFile(file)
-
-	http.Redirect(w, r, file.DirectUrl, http.StatusFound)
-}
-
-func (s *Server) ListHandler(w http.ResponseWriter, r *http.Request) {
-	files, err := s.KV.ListFiles()
+	certPool := x509.NewCertPool()
+	caContents, err := ioutil.ReadFile(caCertFile)
 	if err != nil {
-		log.WithError(err).Error("error listing files")
-		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
-		return
+		ll.Fatal("unable to read CA certificate file",
+			zap.String("file", caCertFile),
+			zap.Error(err))
 	}
+	certPool.AppendCertsFromPEM(caContents)
+	tlsConfig.ClientCAs = certPool
+	tlsConfig.ClientAuth = tls.RequireAndVerifyClientCert
 
-	jsonBody, err := json.Marshal(files)
+	lis, err := tls.Listen("tcp", rpcAddr, tlsConfig)
 	if err != nil {
-		log.WithError(err).Error("error encoding file list to json")
-		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
-		return
+		ll.Fatal("failed to listen", zap.Error(err))
 	}
+	grpcServer := grpc.NewServer()
+	spree.RegisterSpreeServer(grpcServer, server)
+	ll.Info("Starting RPC server", zap.String("rpc.addr", rpcAddr))
+	go grpcServer.Serve(lis)
 
-	fmt.Fprint(w, string(jsonBody))
-}
-
-func (s *Server) UploadHandler(w http.ResponseWriter, r *http.Request) {
-	filename := r.FormValue("filename")
-	src, _, err := r.FormFile("file")
-	ll := log.WithFields(log.Fields{"filename": filename})
-
-	if err != nil {
-		ll.WithError(err).Error("error reading uploaded file")
-		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
-		return
-	}
-	defer src.Close()
-
-	file, err := s.Store.Save(src, filename)
-	if err != nil {
-		ll.WithError(err).Error("error storing file to backend")
-		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
-		return
-	}
-
-	err = s.KV.PutFile(file)
-	if err != nil {
-		ll.WithError(err).Error("error storing file to db")
-		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
-		return
-	}
-
-	jsonFile, err := json.Marshal(file)
-	if err != nil {
-		ll.WithError(err).Error("error encoding file object to json")
-		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
-		return
-	}
-
-	w.WriteHeader(http.StatusCreated)
-	fmt.Fprint(w, string(jsonFile))
-}
-
-func handleSignals(shutdownFn func()) {
-	sig := make(chan os.Signal, 1)
-	signal.Notify(sig, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP, syscall.SIGUSR1, syscall.SIGINT)
-	defer signal.Stop(sig)
-	for s := range sig {
-		switch s {
-		case syscall.SIGUSR1:
-			debug.PrintStack()
-		case syscall.SIGHUP:
-			log.Warn("shutting down due to signal")
-			shutdownFn()
-			os.Exit(1)
-			return
-		case syscall.SIGINT:
-			log.Warn("shutting down due to signal")
-			shutdownFn()
-			os.Exit(0)
-			return
-		default:
-			log.WithFields(log.Fields{"signal": s}).Warn("received signal")
-			shutdownFn()
-			os.Exit(2)
-			return
-		}
-	}
+	httpAddr := ctx.String(httpAddrFlag.Name)
+	httpServer := spree.NewHTTPServer(httpAddr, boltKV, store, ll)
+	go httpServer.Run()
+	select {}
 }
