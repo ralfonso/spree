@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -13,10 +14,6 @@ import (
 	"github.com/codegangsta/cli"
 	"github.com/gorilla/handlers"
 	"github.com/gorilla/mux"
-	"github.com/ralfonso/spree/internal/auth"
-	"github.com/ralfonso/spree/internal/metadata"
-	"github.com/ralfonso/spree/internal/metadata/backends"
-	"github.com/ralfonso/spree/internal/storage"
 )
 
 func main() {
@@ -25,15 +22,44 @@ func main() {
 	app.Flags = GlobalFlags
 	app.Name = "spree"
 	app.Usage = "upload stuff"
-	app.Action = func(c *cli.Context) {
-		server := NewServer(c)
-		server.Run()
+	app.Action = func(ctx *cli.Context) {
+		boltKV, err := backends.NewBoltKV(ctx.String(dbFileFlag.Name), ctx.String(dbBucketFlag.Name), ctx.String(urlPrefixFlag.Name))
+		if err != nil {
+			log.WithError(err).Fatalf("unable to create BoltKV")
+		}
+
+		dataDir := ctx.String(dataDirFlag.Name)
+		store, err := storage.NewFileStore(dataDir)
+		if err != nil {
+			log.WithError(err).Fatalf("unable to create FileStore")
+		}
+
+		server := NewServer(boltKV, store)
+		lis, err := net.Listen("tcp", ctx.String(addrFlag.Name))
+		if err != nil {
+			log.Fatalf("failed to listen: %v", err)
+		}
+		grpcServer := grpc.NewServer()
+		pb.RegisterRouteGuideServer(grpcServer, server)
+		go grpcServer.Serve(lis)
+
+		httpServer := NewHTTPServer(ctx, boltKV, store)
+		go httpServer.Run()
+
+		shutdownFn := func() {
+			err := s.KV.Close()
+			if err != nil {
+				log.WithError(err).Error("Error closing KV DB")
+			}
+		}
+
+		go handleSignals(shutdownFn)
 	}
 
 	app.Run(os.Args)
 }
 
-type Server struct {
+type HTTPServer struct {
 	Addr      string
 	DataDir   string
 	AuthToken string
@@ -41,14 +67,7 @@ type Server struct {
 	KV        metadata.Store
 }
 
-func NewServer(ctx *cli.Context) *Server {
-	dataDir := ctx.String(dataDirFlag.Name)
-	store := storage.NewFileStore(dataDir, ctx.String(urlPrefixFlag.Name))
-	boltKV, err := backends.NewBoltKV(ctx.String(dbFileFlag.Name), ctx.String(dbBucketFlag.Name), ctx.String(urlPrefixFlag.Name))
-	if err != nil {
-		log.WithError(err).Fatal("unable to connect to KV")
-	}
-
+func NewHTTPServer(ctx *cli.Context, md Metdata, store Store) *HTTPServer {
 	return &Server{
 		Addr:      ctx.String(addrFlag.Name),
 		DataDir:   dataDir,
@@ -58,15 +77,7 @@ func NewServer(ctx *cli.Context) *Server {
 	}
 }
 
-func (s *Server) Run() {
-	shutdownFn := func() {
-		err := s.KV.Close()
-		if err != nil {
-			log.WithError(err).Error("Error closing KV DB")
-		}
-	}
-
-	go handleSignals(shutdownFn)
+func (s *HTTPServer) Run() {
 	r := mux.NewRouter()
 	r.HandleFunc("/", s.IndexHandler)
 	r.HandleFunc("/p/{id}", s.DisplayPageHandler)
@@ -81,12 +92,12 @@ func (s *Server) Run() {
 	log.Fatal(http.ListenAndServe(s.Addr, loggingRouter))
 }
 
-func (s *Server) IndexHandler(w http.ResponseWriter, r *http.Request) {
+func (s *HTTPServer) IndexHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html")
 	w.Write([]byte("<img src=\"http://thumbs1.ebaystatic.com/d/l225/m/mwtBoKyCDL2DSVbHojb7KNQ.jpg\" style=\"width:100%; height:100%\">"))
 }
 
-func (s *Server) ImageHandler(w http.ResponseWriter, r *http.Request) {
+func (s *HTTPServer) ImageHandler(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case "GET":
 		s.ListHandler(w, r)
@@ -95,7 +106,7 @@ func (s *Server) ImageHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) DisplayPageHandler(w http.ResponseWriter, r *http.Request) {
+func (s *HTTPServer) DisplayPageHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	id := vars["id"]
 	file, err := s.KV.GetFileById(id)
@@ -118,7 +129,7 @@ func (s *Server) DisplayPageHandler(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, file.DirectUrl, http.StatusFound)
 }
 
-func (s *Server) ListHandler(w http.ResponseWriter, r *http.Request) {
+func (s *HTTPServer) ListHandler(w http.ResponseWriter, r *http.Request) {
 	files, err := s.KV.ListFiles()
 	if err != nil {
 		log.WithError(err).Error("error listing files")
@@ -136,7 +147,7 @@ func (s *Server) ListHandler(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprint(w, string(jsonBody))
 }
 
-func (s *Server) UploadHandler(w http.ResponseWriter, r *http.Request) {
+func (s *HTTPServer) UploadHandler(w http.ResponseWriter, r *http.Request) {
 	filename := r.FormValue("filename")
 	src, _, err := r.FormFile("file")
 	ll := log.WithFields(log.Fields{"filename": filename})

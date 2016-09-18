@@ -1,0 +1,28 @@
+syntax = 'proto3';
+
+service Spree {
+  rpc Create(stream CreateRequest) returns (stream CreateResponse) {}
+}
+
+message CreateRequest {
+  string filename = 1;
+  uint64 total_size_bytes = 2;
+
+  uint64 offset = 3;
+  uint64 length = 4;
+  bytes data =  5;
+}
+
+message CreateResponse {
+  Shot shot = 1;
+
+  uint64 offset = 2;
+  uint64 bytes_written = 3;
+}
+
+message Shot {
+  string id = 1;
+  string created_at = 2;
+  string filename = 3;
+  uint64 views = 4;
+}
