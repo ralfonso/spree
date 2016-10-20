@@ -1,7 +1,7 @@
 spree_dir := $(abspath $(shell git rev-parse --show-toplevel))
 build_image = "golang:1.7.1-alpine"
 
-all: spreed spree-client
+all: spreed spreectl
 .PHONY: all
 
 spreed:
@@ -11,15 +11,19 @@ spreed:
 		go build -o spreed github.com/ralfonso/spree/cmd/spreed
 .PHONY: spreed
 
-spree-client:
+spreectl:
 	docker run --rm -v $(spree_dir):/go/src/github.com/ralfonso/spree \
 		-w /go/src/github.com/ralfonso/spree \
 		-it $(build_image) \
-		go build -o spree-client github.com/ralfonso/spree/cmd/spree-client
-.PHONY: spree-client
+		go build -o spreectl github.com/ralfonso/spree/cmd/spreectl
+.PHONY: spreectl
 
-image-spreed:
+spreectl-native:
+	go build -o spreectl github.com/ralfonso/spree/cmd/spreectl
+.PHONY: spreectl-native
+
+image:
 	docker build -f Dockerfile.spreed -t ralfonso/spreed .
 
-push-spreed:
+push:
 	docker push ralfonso/spreed

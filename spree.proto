@@ -2,22 +2,22 @@ syntax = 'proto3';
 
 service Spree {
   rpc Create(stream CreateRequest) returns (stream CreateResponse) {}
+  rpc List(ListRequest) returns (ListResponse) {}
 }
 
 message CreateRequest {
   string filename = 1;
-  uint64 total_size_bytes = 2;
 
-  uint64 offset = 3;
-  uint64 length = 4;
-  bytes data =  5;
+  int64 offset = 2;
+  int64 length = 3;
+  bytes data =  4;
 }
 
 message CreateResponse {
   Shot shot = 1;
 
-  uint64 offset = 2;
-  uint64 bytes_written = 3;
+  int64 offset = 2;
+  int64 bytes_written = 3;
 }
 
 message Shot {
@@ -25,4 +25,19 @@ message Shot {
   string created_at = 2;
   string filename = 3;
   uint64 views = 4;
+  string path = 5;
+
+  BackendDetails backend = 6;
+}
+
+message BackendDetails {
+  string type = 1;
+}
+
+message ListRequest {
+
+}
+
+message ListResponse {
+  repeated Shot shots = 1;
 }
