@@ -4,86 +4,140 @@
 		{
 			"importpath": "github.com/Sirupsen/logrus",
 			"repository": "https://github.com/Sirupsen/logrus",
+			"vcs": "",
 			"revision": "219c8cb75c258c552e999735be6df753ffc7afdc",
 			"branch": "master"
 		},
 		{
+			"importpath": "github.com/alecthomas/template",
+			"repository": "https://github.com/alecthomas/template",
+			"vcs": "git",
+			"revision": "a0175ee3bccc567396460bf5acd36800cb10c49c",
+			"branch": "master",
+			"notests": true
+		},
+		{
+			"importpath": "github.com/alecthomas/units",
+			"repository": "https://github.com/alecthomas/units",
+			"vcs": "git",
+			"revision": "2efee857e7cfd4f3d0138cc3cbb1b4966962b93a",
+			"branch": "master",
+			"notests": true
+		},
+		{
 			"importpath": "github.com/boltdb/bolt",
 			"repository": "https://github.com/boltdb/bolt",
+			"vcs": "",
 			"revision": "a5ebf41fd5bcd729b2ec2107ad35bbc7b67da4c0",
 			"branch": "master"
 		},
 		{
 			"importpath": "github.com/codegangsta/cli",
 			"repository": "https://github.com/codegangsta/cli",
+			"vcs": "",
 			"revision": "a2943485b110df8842045ae0600047f88a3a56a1",
 			"branch": "master"
 		},
 		{
-			"importpath": "github.com/codegangsta/cli/altsrc",
-			"repository": "https://github.com/codegangsta/cli",
-			"revision": "bc465becccd1d527002fda095fc3c19d9c115029",
+			"importpath": "github.com/elazarl/go-bindata-assetfs",
+			"repository": "https://github.com/elazarl/go-bindata-assetfs",
+			"vcs": "git",
+			"revision": "9a6736ed45b44bf3835afeebb3034b57ed329f3e",
 			"branch": "master",
-			"path": "/altsrc"
+			"notests": true
 		},
 		{
 			"importpath": "github.com/gorilla/context",
 			"repository": "https://github.com/gorilla/context",
+			"vcs": "",
 			"revision": "1ea25387ff6f684839d82767c1733ff4d4d15d0a",
 			"branch": "master"
 		},
 		{
 			"importpath": "github.com/gorilla/handlers",
 			"repository": "https://github.com/gorilla/handlers",
+			"vcs": "",
 			"revision": "ee54c7b44cab12289237fb8631314790076e728b",
 			"branch": "master"
 		},
 		{
 			"importpath": "github.com/gorilla/mux",
 			"repository": "https://github.com/gorilla/mux",
+			"vcs": "",
 			"revision": "c9e326e2bdec29039a3761c07bece13133863e1e",
 			"branch": "master"
 		},
 		{
 			"importpath": "github.com/gorilla/rpc",
 			"repository": "https://github.com/gorilla/rpc",
+			"vcs": "",
 			"revision": "5bc359e9ad5cb47312fe2ef8d0651dafab381f27",
 			"branch": "master"
 		},
 		{
-			"importpath": "github.com/gorilla/rpc/json",
-			"repository": "https://github.com/gorilla/rpc",
-			"revision": "5bc359e9ad5cb47312fe2ef8d0651dafab381f27",
+			"importpath": "github.com/jteeuwen/go-bindata",
+			"repository": "https://github.com/jteeuwen/go-bindata",
+			"vcs": "git",
+			"revision": "a0ff2567cfb70903282db057e799fd826784d41d",
 			"branch": "master",
-			"path": "/json"
+			"notests": true
 		},
 		{
 			"importpath": "github.com/pborman/uuid",
 			"repository": "https://github.com/pborman/uuid",
+			"vcs": "",
 			"revision": "c55201b036063326c5b1b89ccfe45a184973d073",
 			"branch": "master"
 		},
 		{
+			"importpath": "github.com/skratchdot/open-golang",
+			"repository": "https://github.com/skratchdot/open-golang",
+			"vcs": "git",
+			"revision": "75fb7ed4208cf72d323d7d02fd1a5964a7a9073c",
+			"branch": "master",
+			"notests": true
+		},
+		{
 			"importpath": "github.com/speps/go-hashids",
 			"repository": "https://github.com/speps/go-hashids",
+			"vcs": "",
 			"revision": "d1d57a886aa7e3ef6092b70ceab077e35ee8e0ce",
 			"branch": "master"
 		},
 		{
 			"importpath": "gopkg.in/airbrake/gobrake.v2",
 			"repository": "https://gopkg.in/airbrake/gobrake.v2",
+			"vcs": "",
 			"revision": "c9d51adc624b5cc4c1bf8de730a09af4878ffe2d",
 			"branch": "master"
 		},
 		{
+			"importpath": "gopkg.in/alecthomas/kingpin.v2",
+			"repository": "https://gopkg.in/alecthomas/kingpin.v2",
+			"vcs": "git",
+			"revision": "e9044be3ab2a8e11d4e1f418d12f0790d57e8d70",
+			"branch": "master",
+			"notests": true
+		},
+		{
 			"importpath": "gopkg.in/gemnasium/logrus-airbrake-hook.v2",
 			"repository": "https://gopkg.in/gemnasium/logrus-airbrake-hook.v2",
+			"vcs": "",
 			"revision": "31e6fd4bd5a98d8ee7673d24bc54ec73c31810dd",
 			"branch": "master"
 		},
 		{
+			"importpath": "gopkg.in/square/go-jose.v2",
+			"repository": "https://gopkg.in/square/go-jose.v2",
+			"vcs": "git",
+			"revision": "8c5257b2f658f86d174ae68c6a592eaf6a9608d9",
+			"branch": "master",
+			"notests": true
+		},
+		{
 			"importpath": "gopkg.in/yaml.v2",
 			"repository": "https://gopkg.in/yaml.v2",
+			"vcs": "",
 			"revision": "a83829b6f1293c91addabc89d0571c246397bbf4",
 			"branch": "v2"
 		}

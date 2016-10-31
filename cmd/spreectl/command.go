@@ -1,24 +1,33 @@
 package main
 
 import (
-	"context"
+	"bufio"
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 	"path"
+	"strings"
 	"time"
-
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials"
 
 	"github.com/codegangsta/cli"
 	"github.com/golang/protobuf/jsonpb"
 	"github.com/golang/protobuf/proto"
 	"github.com/ralfonso/spree"
+	"github.com/ralfonso/spree/auth"
+	"github.com/skratchdot/open-golang/open"
 	"github.com/uber-go/zap"
+	"golang.org/x/net/context"
+	"golang.org/x/oauth2"
+	"golang.org/x/oauth2/google"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
+)
+
+const (
+	defaultAccessTokenFileName = "config.json"
+	chunkSizeBytes             = 1.049e+6
 )
 
 var (
@@ -27,25 +36,6 @@ var (
 		Name:  "rpc.addr",
 		Value: "localhost:4285",
 		Usage: "Addr for the remote RPC server",
-	}
-
-	caCertFileFlag = cli.StringFlag{
-		Name:   "ca.cert.file",
-		Value:  "spree.dev.ca.crt",
-		Usage:  "CA cert file for TLS client",
-		EnvVar: "SPREE_CACERT_FILE",
-	}
-	certFileFlag = cli.StringFlag{
-		Name:   "cert.file",
-		Value:  "spreectl.crt",
-		Usage:  "cert file for TLS client",
-		EnvVar: "SPREE_CERT_FILE",
-	}
-	keyFileFlag = cli.StringFlag{
-		Name:   "key.file",
-		Value:  "spreectl.key",
-		Usage:  "key file for TLS client",
-		EnvVar: "SPREE_KEY_FILE",
 	}
 
 	// subcommand flags
@@ -59,17 +49,23 @@ var (
 		Value: "",
 		Usage: "The file to upload",
 	}
+
+	oauthScopes = []string{
+		"https://www.googleapis.com/auth/userinfo.email",
+	}
 )
 
 var GlobalFlags = []cli.Flag{
 	rpcAddrFlag,
-	caCertFileFlag,
-	certFileFlag,
-	keyFileFlag,
 }
 
 var (
 	// commands
+	authCmd = cli.Command{
+		Name:   "auth",
+		Usage:  "authenticates with Google and stores the token",
+		Action: AuthCommand,
+	}
 	uploadCmd = cli.Command{
 		Name:   "upload",
 		Usage:  "upload to the server",
@@ -87,29 +83,72 @@ var (
 )
 
 var Commands = []cli.Command{
+	authCmd,
 	uploadCmd,
 	listCmd,
+}
+
+func AuthCommand(ctx *cli.Context) {
+	ll := zap.New(
+		zap.NewJSONEncoder(),
+		zap.Output(os.Stderr),
+	)
+	oauthConf := mustOauthConfFromAsset(ctx, ll)
+	fmt.Println("Opening web browser to log in with Google.")
+
+	authURL := oauthConf.AuthCodeURL("test")
+	err := open.Run(authURL)
+	if err != nil {
+		ll.Fatal("could not open url in browser", zap.Error(err))
+	}
+
+	fmt.Print("Paste Google Developer OAuth Code: ")
+	reader := bufio.NewReader(os.Stdin)
+	code, _ := reader.ReadString('\n')
+	code = strings.TrimRight(code, "\n")
+	token, err := oauthConf.Exchange(context.Background(), code)
+	if err != nil {
+		ll.Fatal("could not exchange code for token", zap.Error(err))
+	}
+
+	jwt, err := auth.NewClientJWTFromOauth2(token, ll)
+	if err != nil {
+		ll.Fatal("could not convert oauth2 token to JWT", zap.Error(err))
+	}
+
+	clientConf := &auth.ClientConfig{
+		OauthToken: token,
+		JWT:        jwt,
+	}
+
+	err = storeConfig(clientConf, ll)
+	if err != nil {
+		ll.Fatal("could not store token in config")
+	}
 }
 
 func UploadCommand(ctx *cli.Context) {
 	filename := ctx.String(filenameFlag.Name)
 	src := ctx.String(srcFlag.Name)
 
-	var reader io.Reader
+	var rdr io.Reader
 	var err error
 
-	ll := zap.New(zap.NewJSONEncoder())
+	ll := zap.New(
+		zap.NewJSONEncoder(),
+		zap.Output(os.Stderr),
+	)
 
 	if src == "-" {
 		if filename == "" {
 			ll.Fatal("You must specify \"file\" when using stdin")
 		}
-		reader = os.Stdin
+		rdr = os.Stdin
 	} else {
 		if filename == "" {
 			filename = path.Base(src)
 		}
-		reader, err = os.Open(src)
+		rdr, err = os.Open(src)
 		if err != nil {
 			ll.Fatal("could not open src file", zap.Error(err))
 		}
@@ -123,20 +162,29 @@ func UploadCommand(ctx *cli.Context) {
 		ll.Fatal("could not call Create", zap.Error(err))
 	}
 
-	buf := make([]byte, 4096)
+	start := time.Now()
+	uploadedBytes, err := doUpload(srv, filename, rdr, ll)
+
+	finish := time.Since(start)
+	ll.Info("completed upload",
+		zap.Float64("MiB/s", float64(uploadedBytes/1024)/finish.Seconds()))
+}
+
+func doUpload(srv spree.Spree_CreateClient, filename string, rdr io.Reader, ll zap.Logger) (int64, error) {
+	buf := make([]byte, chunkSizeBytes)
 	msg := &spree.CreateRequest{
 		Filename: path.Base(filename),
 	}
 
 	var offset int64
 	for {
-		n, err := reader.Read(buf)
+		n, err := rdr.Read(buf)
 		if err == io.EOF {
 			srv.CloseSend()
 
 			resp, err := srv.Recv()
 			if err == io.EOF {
-				return
+				return offset, err
 			}
 			if err != nil {
 				ll.Fatal("error reading response from server", zap.Error(err))
@@ -147,7 +195,7 @@ func UploadCommand(ctx *cli.Context) {
 			}
 
 			srv.CloseSend()
-			return
+			return offset, nil
 		}
 		if err != nil {
 			ll.Fatal("error reading file", zap.Error(err))
@@ -163,7 +211,7 @@ func UploadCommand(ctx *cli.Context) {
 
 		resp, err := srv.Recv()
 		if err == io.EOF {
-			return
+			return offset, err
 		}
 		if err != nil {
 			ll.Fatal("error reading response from server", zap.Error(err))
@@ -180,7 +228,10 @@ func UploadCommand(ctx *cli.Context) {
 }
 
 func ListCommand(ctx *cli.Context) {
-	ll := zap.New(zap.NewJSONEncoder())
+	ll := zap.New(
+		zap.NewJSONEncoder(),
+		zap.Output(os.Stderr),
+	)
 	c := mustSpreeClient(ctx, ll)
 	req := &spree.ListRequest{}
 	cctx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
@@ -194,44 +245,71 @@ func ListCommand(ctx *cli.Context) {
 
 func mustSpreeClient(ctx *cli.Context, ll zap.Logger) spree.SpreeClient {
 	rpcAddr := ctx.GlobalString(rpcAddrFlag.Name)
-	caCertFile := ctx.GlobalString(caCertFileFlag.Name)
-	certFile := ctx.GlobalString(certFileFlag.Name)
-	keyFile := ctx.GlobalString(keyFileFlag.Name)
-
-	if caCertFile == "" || certFile == "" || keyFile == "" {
-		ll.Fatal("must have CA cert, client cert, and client key")
-	}
+	caCert := mustCACertFromAsset(ctx, ll)
+	oauthConfig := mustOauthConfFromAsset(ctx, ll)
 
 	certPool := x509.NewCertPool()
-	caContents, err := ioutil.ReadFile(caCertFile)
-	if err != nil {
-		ll.Fatal("unable to read CA certificate file",
-			zap.String("file", caCertFile),
-			zap.Error(err))
-	}
-	certPool.AppendCertsFromPEM(caContents)
+	certPool.AppendCertsFromPEM(caCert)
 	tlsConfig := &tls.Config{
 		RootCAs: certPool,
 	}
 
-	opts := make([]grpc.DialOption, 0)
-	cert, err := tls.LoadX509KeyPair(certFile, keyFile)
-	if err != nil {
-		ll.Fatal("unable to load keypair",
-			zap.String("cert.file", certFile),
-			zap.String("key.file", keyFile))
+	// local dev hax
+	rpcParts := strings.Split(rpcAddr, ":")
+	if rpcParts[0] == "localhost" {
+		tlsConfig.InsecureSkipVerify = true
 	}
-	tlsConfig.Certificates = []tls.Certificate{cert}
-	tlsConfig.InsecureSkipVerify = true
 
 	creds := credentials.NewTLS(tlsConfig)
-	opts = append(opts, grpc.WithTransportCredentials(creds))
+	opts := []grpc.DialOption{
+		grpc.WithTransportCredentials(creds),
+	}
+
+	clientConf, err := getConfig(ll)
+	if err != nil {
+		ll.Fatal("unable to retrieve client configuration")
+	}
+	if clientConf == nil || clientConf.JWT == nil {
+		ll.Fatal("missing token. please use the auth command first")
+	}
+
+	cctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	jwt, err := auth.RefreshJWT(cctx, clientConf, oauthConfig, ll)
+	if err != nil {
+		ll.Fatal("could not refresh jwt", zap.Error(err))
+	}
+	cancel()
+
+	opts = append(opts, grpc.WithPerRPCCredentials(jwt))
 
 	conn, err := grpc.Dial(rpcAddr, opts...)
 	if err != nil {
 		ll.Fatal("could not connect", zap.Error(err))
 	}
 	return spree.NewSpreeClient(conn)
+}
+
+func mustCACertFromAsset(ctx *cli.Context, ll zap.Logger) []byte {
+	caCert, err := Asset("private/shared/certs/spree.ca.crt")
+	if err != nil {
+		ll.Fatal("could not load CA cert file asset", zap.Error(err))
+	}
+	return caCert
+}
+
+func mustOauthConfFromAsset(ctx *cli.Context, ll zap.Logger) *oauth2.Config {
+	jsonConf, err := Asset("private/client/oauth.json")
+	if err != nil {
+		ll.Fatal("could not load oauth config asset", zap.Error(err))
+	}
+
+	oauthConf, err := google.ConfigFromJSON(jsonConf, oauthScopes...)
+	if err != nil {
+		ll.Fatal("could not parse JSON oauth config",
+			zap.Error(err))
+	}
+
+	return oauthConf
 }
 
 func printProto(p proto.Message, ll zap.Logger) {

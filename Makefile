@@ -4,21 +4,21 @@ build_image = "golang:1.7.1-alpine"
 all: spreed spreectl
 .PHONY: all
 
-spreed:
+spreed: server-bindata
 	docker run --rm -v $(spree_dir):/go/src/github.com/ralfonso/spree \
 		-w /go/src/github.com/ralfonso/spree \
 		-it $(build_image) \
 		go build -o spreed github.com/ralfonso/spree/cmd/spreed
 .PHONY: spreed
 
-spreectl:
+spreectl: client-bindata
 	docker run --rm -v $(spree_dir):/go/src/github.com/ralfonso/spree \
 		-w /go/src/github.com/ralfonso/spree \
 		-it $(build_image) \
 		go build -o spreectl github.com/ralfonso/spree/cmd/spreectl
 .PHONY: spreectl
 
-spreectl-native:
+spreectl-native: client-bindata
 	go build -o spreectl github.com/ralfonso/spree/cmd/spreectl
 .PHONY: spreectl-native
 
@@ -27,3 +27,9 @@ image:
 
 push:
 	docker push ralfonso/spreed
+
+server-bindata:
+	go-bindata -o cmd/spreed/bindata.go private/server/... private/shared/...
+
+client-bindata:
+	go-bindata -o cmd/spreectl/bindata.go private/client/... private/shared/...

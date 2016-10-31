@@ -8,13 +8,11 @@ import (
 	"os"
 	"path/filepath"
 
+	assetfs "github.com/elazarl/go-bindata-assetfs"
 	"github.com/golang/protobuf/jsonpb"
 	"github.com/gorilla/handlers"
 	"github.com/gorilla/mux"
-	"github.com/rakyll/statik/fs"
 	"github.com/uber-go/zap"
-
-	_ "github.com/ralfonso/spree/statik"
 )
 
 type HTTPServer struct {
@@ -23,6 +21,7 @@ type HTTPServer struct {
 	storage Storage
 	md      Metadata
 	jm      jsonpb.Marshaler
+	assetFS *assetfs.AssetFS
 }
 
 const (
@@ -30,25 +29,23 @@ const (
 	directPath  = "/r"
 )
 
-func NewHTTPServer(addr string, md Metadata, storage Storage, ll zap.Logger) *HTTPServer {
+func NewHTTPServer(addr string, md Metadata, storage Storage,
+	assetFS *assetfs.AssetFS, ll zap.Logger) *HTTPServer {
 	return &HTTPServer{
 		ll:      ll,
 		addr:    addr,
 		storage: storage,
 		md:      md,
 		jm:      jsonpb.Marshaler{Indent: "  "},
+		assetFS: assetFS,
 	}
 }
 
 func (s *HTTPServer) Run() {
 	r := mux.NewRouter()
 
-	statikFS, err := fs.New()
-	if err != nil {
-		s.ll.Fatal("error opening static filesystem", zap.Error(err))
-	}
 	r.HandleFunc("/", s.IndexHandler)
-	r.PathPrefix("/static/").Handler(http.StripPrefix("/static/", http.FileServer(statikFS)))
+	r.PathPrefix("/static/").Handler(http.StripPrefix("/static/", http.FileServer(s.assetFS)))
 	r.HandleFunc("/p/{id}", s.DisplayPageHandler)
 	r.HandleFunc("/r/{filename}", s.DirectHandler)
 

@@ -6,11 +6,9 @@ import (
 	"time"
 
 	"github.com/uber-go/zap"
-
+	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-
-	"golang.org/x/net/context"
 )
 
 var (

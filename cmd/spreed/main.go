@@ -6,12 +6,15 @@ import (
 	"io/ioutil"
 	"math/rand"
 	"os"
+	"strings"
 	"time"
 
 	"google.golang.org/grpc"
 
 	"github.com/codegangsta/cli"
+	assetfs "github.com/elazarl/go-bindata-assetfs"
 	"github.com/ralfonso/spree"
+	"github.com/ralfonso/spree/auth"
 	"github.com/uber-go/zap"
 )
 
@@ -45,6 +48,7 @@ func serve(ctx *cli.Context) {
 	caCertFile := ctx.GlobalString(caCertFileFlag.Name)
 	certFile := ctx.GlobalString(certFileFlag.Name)
 	keyFile := ctx.GlobalString(keyFileFlag.Name)
+	allowedEmails := mustStringCSV(ctx, allowedEmailsFlag, ll)
 
 	if caCertFile == "" || certFile == "" || keyFile == "" {
 		ll.Fatal("must have CA cert, server cert, and server key")
@@ -65,19 +69,39 @@ func serve(ctx *cli.Context) {
 	}
 	certPool.AppendCertsFromPEM(caContents)
 	tlsConfig.ClientCAs = certPool
-	tlsConfig.ClientAuth = tls.RequireAndVerifyClientCert
+	tlsConfig.ClientAuth = tls.VerifyClientCertIfGiven
+
+	jwtInterceptor := auth.MakeJWTInterceptor(allowedEmails, ll)
+	serverOpts := []grpc.ServerOption{
+		grpc.UnaryInterceptor(jwtInterceptor),
+	}
 
 	lis, err := tls.Listen("tcp", rpcAddr, tlsConfig)
 	if err != nil {
 		ll.Fatal("failed to listen", zap.Error(err))
 	}
-	grpcServer := grpc.NewServer()
+
+	grpcServer := grpc.NewServer(serverOpts...)
 	spree.RegisterSpreeServer(grpcServer, server)
 	ll.Info("Starting RPC server", zap.String("rpc.addr", rpcAddr))
 	go grpcServer.Serve(lis)
 
+	assetFS := &assetfs.AssetFS{
+		Asset:     Asset,
+		AssetDir:  AssetDir,
+		AssetInfo: AssetInfo,
+		Prefix:    "private/server/static",
+	}
 	httpAddr := ctx.String(httpAddrFlag.Name)
-	httpServer := spree.NewHTTPServer(httpAddr, boltKV, store, ll)
+	httpServer := spree.NewHTTPServer(httpAddr, boltKV, store, assetFS, ll)
 	go httpServer.Run()
 	select {}
+}
+
+func mustStringCSV(ctx *cli.Context, strFlag cli.StringFlag, ll zap.Logger) []string {
+	raw := ctx.GlobalString(strFlag.Name)
+	if raw == "" {
+		ll.Fatal("must set flag", zap.String("flag.name", strFlag.Name))
+	}
+	return strings.Split(raw, ",")
 }

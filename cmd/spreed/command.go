@@ -11,13 +11,13 @@ var (
 	}
 	certFileFlag = cli.StringFlag{
 		Name:   "cert.file",
-		Value:  "/etc/spree/certs/spree.server.crt",
+		Value:  "/etc/spree/certs/spree.dev.crt",
 		Usage:  "cert file for TLS server",
 		EnvVar: "SPREE_CERT_FILE",
 	}
 	keyFileFlag = cli.StringFlag{
 		Name:   "key.file",
-		Value:  "/etc/spree/certs/spree.server.key",
+		Value:  "/etc/spree/certs/spree.dev.key",
 		Usage:  "key file for TLS server",
 		EnvVar: "SPREE_KEY_FILE",
 	}
@@ -51,6 +51,12 @@ var (
 		Usage:  "The bucket to use in the database",
 		EnvVar: "SPREE_DB_BUCKET",
 	}
+	allowedEmailsFlag = cli.StringFlag{
+		Name:   "allowed.emails",
+		Value:  "",
+		Usage:  "comma-separated string containing the emails allowed to access the server",
+		EnvVar: "SPREE_ALLOWED_EMAILS",
+	}
 )
 
 var GlobalFlags = []cli.Flag{
@@ -62,4 +68,5 @@ var GlobalFlags = []cli.Flag{
 	dataDirFlag,
 	dbFileFlag,
 	dbBucketFlag,
+	allowedEmailsFlag,
 }
