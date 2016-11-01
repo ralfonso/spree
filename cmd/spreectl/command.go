@@ -290,7 +290,7 @@ func mustSpreeClient(ctx *cli.Context, ll zap.Logger) spree.SpreeClient {
 }
 
 func mustCACertFromAsset(ctx *cli.Context, ll zap.Logger) []byte {
-	caCert, err := Asset("private/shared/certs/spree.ca.crt")
+	caCert, err := Asset("static/shared/certs/spree.ca.crt")
 	if err != nil {
 		ll.Fatal("could not load CA cert file asset", zap.Error(err))
 	}
@@ -298,7 +298,7 @@ func mustCACertFromAsset(ctx *cli.Context, ll zap.Logger) []byte {
 }
 
 func mustOauthConfFromAsset(ctx *cli.Context, ll zap.Logger) *oauth2.Config {
-	jsonConf, err := Asset("private/client/oauth.json")
+	jsonConf, err := Asset("static/client/oauth.json")
 	if err != nil {
 		ll.Fatal("could not load oauth config asset", zap.Error(err))
 	}

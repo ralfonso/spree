@@ -90,7 +90,7 @@ func serve(ctx *cli.Context) {
 		Asset:     Asset,
 		AssetDir:  AssetDir,
 		AssetInfo: AssetInfo,
-		Prefix:    "private/server/static",
+		Prefix:    "static/server/static",
 	}
 	httpAddr := ctx.String(httpAddrFlag.Name)
 	httpServer := spree.NewHTTPServer(httpAddr, boltKV, store, assetFS, ll)
