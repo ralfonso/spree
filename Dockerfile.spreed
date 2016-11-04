@@ -1,6 +1,7 @@
 FROM alpine
 EXPOSE 4285
 RUN mkdir /spree-data
+RUN apk --update add ca-certificates
 ADD spreed /spreed
 ADD spreectl /spreectl
 CMD ["/spreed"]

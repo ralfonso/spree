@@ -71,7 +71,8 @@ func serve(ctx *cli.Context) {
 	tlsConfig.ClientCAs = certPool
 	tlsConfig.ClientAuth = tls.VerifyClientCertIfGiven
 
-	jwtInterceptor := auth.MakeJWTInterceptor(allowedEmails, ll)
+	a := auth.NewAuthenticator(ll)
+	jwtInterceptor := auth.MakeJWTInterceptor(allowedEmails, a, ll)
 	serverOpts := []grpc.ServerOption{
 		grpc.UnaryInterceptor(jwtInterceptor),
 	}

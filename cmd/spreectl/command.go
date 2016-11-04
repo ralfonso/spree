@@ -274,11 +274,20 @@ func mustSpreeClient(ctx *cli.Context, ll zap.Logger) spree.SpreeClient {
 	}
 
 	cctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	jwt, err := auth.RefreshJWT(cctx, clientConf, oauthConfig, ll)
+	a := auth.NewAuthenticator(ll)
+	oauthToken, jwt, err := a.RefreshJWT(cctx, clientConf, oauthConfig)
 	if err != nil {
 		ll.Fatal("could not refresh jwt", zap.Error(err))
 	}
 	cancel()
+	if oauthToken.AccessToken != clientConf.OauthToken.AccessToken || jwt.Token != clientConf.JWT.Token {
+		clientConf.OauthToken = oauthToken
+		clientConf.JWT = jwt
+		err = storeConfig(clientConf, ll)
+		if err != nil {
+			ll.Fatal("unable to write new access token to config", zap.Error(err))
+		}
+	}
 
 	opts = append(opts, grpc.WithPerRPCCredentials(jwt))
 
