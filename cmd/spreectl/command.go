@@ -236,6 +236,7 @@ func ListCommand(ctx *cli.Context) {
 	req := &spree.ListRequest{}
 	cctx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
 	defer cancel()
+	ll.Info("making list request")
 	resp, err := c.List(cctx, req)
 	if err != nil {
 		ll.Fatal("error in list response", zap.Error(err))

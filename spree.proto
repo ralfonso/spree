@@ -26,6 +26,7 @@ message Shot {
   string filename = 3;
   uint64 views = 4;
   string path = 5;
+  uint64 size_bytes = 7;
 
   BackendDetails backend = 6;
 }

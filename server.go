@@ -40,77 +40,38 @@ func (s *Server) Create(stream Spree_CreateServer) error {
 
 	var file File
 	var filename string
-	var ptr int64
-	for {
-		in, err := stream.Recv()
-		if err == io.EOF {
-			break
-		}
+	var shot *Shot
+
+	in, err := stream.Recv()
+	if err == io.EOF {
+		return errUnknownFile
+	}
+	if err != nil {
+		return err
+	}
+
+	if file == nil && in.Filename != "" {
+		filename = path.Base(in.Filename)
+		ll = ll.With(zap.String("filename", filename))
+		var err error
+		file, err = s.newFile(filename, ll)
 		if err != nil {
-			return err
+			ll.Error("could not create new file", zap.Error(err))
+			return errInternal
 		}
+		defer file.Close()
 
-		if file == nil && in.Filename != "" {
-			filename = path.Base(in.Filename)
-			ll = ll.With(zap.String("filename", filename))
-			file, err = s.storage.Create(filename)
-			if err != nil {
-				s.ll.Error("unable to open file", zap.Error(err))
-				return errInternal
-			}
-			defer file.Close()
-			ll.Info("created new file")
-		}
-
-		if file == nil {
-			ll.Info("unknown file")
+		shot, err = s.handleFileBody(stream, filename, file, ll)
+		if err != nil {
 			return errUnknownFile
 		}
-
-		if in.Length > 0 {
-			if int64(len(in.Data)) != in.Length {
-				ll.With(
-					zap.Int("in.data.len", len(in.Data)),
-					zap.Int64("in.length", in.Length),
-				).Error("data/length mismatch")
-				return errInvalidArg
-			}
-
-			if in.Offset != ptr {
-				file.Seek(in.Offset, io.SeekStart)
-				ptr = in.Offset
-			}
-
-			n, err := file.Write(in.Data)
-			if err != nil {
-				ll.Error("unable to write to file file", zap.Error(err))
-				return errInternal
-			}
-
-			ptr += in.Length
-
-			resp := &CreateResponse{
-				Offset:       ptr,
-				BytesWritten: int64(n),
-			}
-			err = stream.Send(resp)
-			if err != nil {
-				ll.Error("unable to send response to client", zap.Error(err))
-				return errInternal
-			}
-		}
 	}
 
-	shot := &Shot{
-		CreatedAt: time.Now().UTC().Format(time.RFC3339),
-		Filename:  filename,
-		Backend: &BackendDetails{
-			Type: "file",
-		},
+	if shot == nil {
+		return errInternal
 	}
-	shot.Id = s.md.GetId(shot)
 
-	err := s.md.PutShot(shot)
+	err = s.md.PutShot(shot)
 	if err != nil {
 		ll.With(zap.Object("shot", shot)).Error("unable to put shot", zap.Error(err))
 		return err
@@ -139,4 +100,76 @@ func (s *Server) List(ctx context.Context, req *ListRequest) (*ListResponse, err
 	}
 
 	return resp, nil
+}
+
+func (s *Server) newFile(filename string, ll zap.Logger) (File, error) {
+	file, err := s.storage.Create(filename)
+	if err != nil {
+		s.ll.Error("unable to open file", zap.Error(err))
+		return nil, err
+	}
+	ll.Info("created new file")
+	return file, nil
+}
+
+func (s *Server) handleFileBody(stream Spree_CreateServer, filename string, file File, ll zap.Logger) (*Shot, error) {
+	if file == nil {
+		ll.Info("unknown file")
+		return nil, errUnknownFile
+	}
+
+	var ptr int64
+	for {
+		in, err := stream.Recv()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
+
+		if in.Length > 0 {
+			if int64(len(in.Data)) != in.Length {
+				ll.With(
+					zap.Int("in.data.len", len(in.Data)),
+					zap.Int64("in.length", in.Length),
+				).Error("data/length mismatch")
+				return nil, errInvalidArg
+			}
+
+			if in.Offset != ptr {
+				file.Seek(in.Offset, io.SeekStart)
+				ptr = in.Offset
+			}
+
+			n, err := file.Write(in.Data)
+			if err != nil {
+				ll.Error("unable to write to file file", zap.Error(err))
+				return nil, errInternal
+			}
+
+			ptr += in.Length
+
+			resp := &CreateResponse{
+				Offset:       ptr,
+				BytesWritten: int64(n),
+			}
+			err = stream.Send(resp)
+			if err != nil {
+				ll.Error("unable to send response to client", zap.Error(err))
+				return nil, errInternal
+			}
+		}
+	}
+
+	shot := &Shot{
+		CreatedAt: time.Now().UTC().Format(time.RFC3339),
+		Filename:  filename,
+		SizeBytes: uint64(ptr),
+		Backend: &BackendDetails{
+			Type: "file",
+		},
+	}
+	shot.Id = s.md.GetId(shot)
+	return shot, nil
 }
