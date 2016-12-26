@@ -1,7 +1,7 @@
-FROM alpine
+FROM alpine:3.4
 EXPOSE 4285
 RUN mkdir /spree-data
-RUN apk --update add ca-certificates
+RUN apk --update add ca-certificates --repository https://dl-cdn.alpinelinux.org/alpine/v3.4/main
 ADD spreed /spreed
 ADD spreectl /spreectl
 CMD ["/spreed"]

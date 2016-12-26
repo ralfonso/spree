@@ -100,8 +100,8 @@ func (b *BoltKV) ListShots() ([]*Shot, error) {
 			shot := &Shot{}
 			err := proto.Unmarshal(v, shot)
 			if err != nil {
-				b.ll.Error("could not marshal proto file in PutFile", zap.Error(err))
-				return err
+				b.ll.Error("could not marshal proto file in ListShots", zap.Error(err))
+				continue
 			}
 			shot.Path = fmt.Sprintf("/p/%s", shot.Id)
 			shots = append(shots, shot)
