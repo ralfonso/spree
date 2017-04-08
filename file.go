@@ -64,3 +64,8 @@ func (fs *FileStorage) Create(filename string) (File, error) {
 	filePath := filepath.Join(fs.path, filename)
 	return os.Create(filePath)
 }
+
+func (fs *FileStorage) Remove(filename string) error {
+	filePath := filepath.Join(fs.path, filename)
+	return os.Remove(filePath)
+}

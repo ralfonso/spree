@@ -37,35 +37,9 @@ func (s *Server) Create(stream Spree_CreateServer) error {
 	ll := s.ll.With(
 		zap.String("method", "Create"),
 	)
+	ll.Info("starting rpc")
 
-	var file File
-	var filename string
-	var shot *Shot
-
-	in, err := stream.Recv()
-	if err == io.EOF {
-		return errUnknownFile
-	}
-	if err != nil {
-		return err
-	}
-
-	if file == nil && in.Filename != "" {
-		filename = path.Base(in.Filename)
-		ll = ll.With(zap.String("filename", filename))
-		var err error
-		file, err = s.newFile(filename, ll)
-		if err != nil {
-			ll.Error("could not create new file", zap.Error(err))
-			return errInternal
-		}
-		defer file.Close()
-
-		shot, err = s.handleFileBody(stream, filename, file, ll)
-		if err != nil {
-			return errUnknownFile
-		}
-	}
+	shot, err := s.handleFileUpload(stream, ll)
 
 	if shot == nil {
 		return errInternal
@@ -87,19 +61,15 @@ func (s *Server) Create(stream Spree_CreateServer) error {
 	return nil
 }
 
-func (s *Server) List(ctx context.Context, req *ListRequest) (*ListResponse, error) {
-	ll := s.ll.With(zap.String("method", "List"))
-	shots, err := s.md.ListShots()
-	if err != nil {
-		ll.Error("error listing shots", zap.Error(err))
-		return nil, errInternal
+func (s *Server) cleanupFile(filename string, success bool, ll zap.Logger) {
+	if !success {
+		ll.Info("cleaning up unsuccessful upload")
+		err := s.storage.Remove(filename)
+		if err != nil {
+			ll.Error("unable to remove file", zap.Error(err))
+			return
+		}
 	}
-
-	resp := &ListResponse{
-		Shots: shots,
-	}
-
-	return resp, nil
 }
 
 func (s *Server) newFile(filename string, ll zap.Logger) (File, error) {
@@ -112,28 +82,55 @@ func (s *Server) newFile(filename string, ll zap.Logger) (File, error) {
 	return file, nil
 }
 
-func (s *Server) handleFileBody(stream Spree_CreateServer, filename string, file File, ll zap.Logger) (*Shot, error) {
-	if file == nil {
-		ll.Info("unknown file")
+func (s *Server) handleFileUpload(stream Spree_CreateServer, ll zap.Logger) (*Shot, error) {
+	var file File
+	var filename string
+
+	in, err := stream.Recv()
+	if err == io.EOF {
 		return nil, errUnknownFile
 	}
+	if err != nil {
+		return nil, err
+	}
+
+	var success bool
+
+	if in.Filename != "" {
+		filename = path.Base(in.Filename)
+		ll = ll.With(zap.String("filename", filename))
+		var err error
+		file, err = s.newFile(filename, ll)
+		if err != nil {
+			ll.Error("could not create new file", zap.Error(err))
+			return nil, errInternal
+		}
+		defer func() {
+			file.Close()
+			s.cleanupFile(filename, success, ll)
+		}()
+
+		if err != nil {
+			return nil, errUnknownFile
+		}
+	}
+
+	ll.Info("handling file content", zap.String("filename", filename))
 
 	var ptr int64
 	for {
-		in, err := stream.Recv()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return nil, err
-		}
-
 		if in.Length > 0 {
+			ll.With(
+				zap.Int("in.data.len", len(in.Data)),
+				zap.Int64("in.length", in.Length),
+				zap.Int64("in.offset", in.Offset),
+			).Info("reading file")
 			if int64(len(in.Data)) != in.Length {
 				ll.With(
 					zap.Int("in.data.len", len(in.Data)),
 					zap.Int64("in.length", in.Length),
 				).Error("data/length mismatch")
+				success = false
 				return nil, errInvalidArg
 			}
 
@@ -145,6 +142,7 @@ func (s *Server) handleFileBody(stream Spree_CreateServer, filename string, file
 			n, err := file.Write(in.Data)
 			if err != nil {
 				ll.Error("unable to write to file file", zap.Error(err))
+				success = false
 				return nil, errInternal
 			}
 
@@ -157,8 +155,19 @@ func (s *Server) handleFileBody(stream Spree_CreateServer, filename string, file
 			err = stream.Send(resp)
 			if err != nil {
 				ll.Error("unable to send response to client", zap.Error(err))
+				success = false
 				return nil, errInternal
 			}
+		}
+
+		in, err = stream.Recv()
+		if err == io.EOF {
+			success = ptr > 0
+			break
+		}
+		if err != nil {
+			success = false
+			return nil, err
 		}
 	}
 
@@ -172,4 +181,20 @@ func (s *Server) handleFileBody(stream Spree_CreateServer, filename string, file
 	}
 	shot.Id = s.md.GetId(shot)
 	return shot, nil
+}
+
+func (s *Server) List(ctx context.Context, req *ListRequest) (*ListResponse, error) {
+	ll := s.ll.With(zap.String("method", "List"))
+	ll.Info("starting rpc")
+	shots, err := s.md.ListShots()
+	if err != nil {
+		ll.Error("error listing shots", zap.Error(err))
+		return nil, errInternal
+	}
+
+	resp := &ListResponse{
+		Shots: shots,
+	}
+
+	return resp, nil
 }

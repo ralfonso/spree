@@ -38,7 +38,7 @@ func getConfig(ll zap.Logger) (*auth.ClientConfig, error) {
 
 // storeConfig stores the client config to disk.
 func storeConfig(conf *auth.ClientConfig, ll zap.Logger) error {
-	jsonConf, err := json.Marshal(conf)
+	jsonConf, err := json.MarshalIndent(conf, "", "  ")
 	if err != nil {
 		return err
 	}

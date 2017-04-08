@@ -6,8 +6,10 @@ import (
 	"crypto/x509"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"os"
 	"path"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -37,6 +39,11 @@ var (
 		Value: "localhost:4285",
 		Usage: "Addr for the remote RPC server",
 	}
+	oauthConfigFileFlag = cli.StringFlag{
+		Name:  "oauth.config.file",
+		Value: "",
+		Usage: "Addr for the remote RPC server",
+	}
 
 	// subcommand flags
 	srcFlag = cli.StringFlag{
@@ -48,6 +55,11 @@ var (
 		Name:  "file",
 		Value: "",
 		Usage: "The file to upload",
+	}
+	caCertFileFlag = cli.StringFlag{
+		Name:  "ca.cert.file",
+		Value: "",
+		Usage: "CA cert file",
 	}
 
 	oauthScopes = []string{
@@ -73,12 +85,16 @@ var (
 		Flags: []cli.Flag{
 			srcFlag,
 			filenameFlag,
+			caCertFileFlag,
 		},
 	}
 	listCmd = cli.Command{
 		Name:   "list",
 		Usage:  "list the files server",
 		Action: ListCommand,
+		Flags: []cli.Flag{
+			caCertFileFlag,
+		},
 	}
 )
 
@@ -93,7 +109,7 @@ func AuthCommand(ctx *cli.Context) {
 		zap.NewJSONEncoder(),
 		zap.Output(os.Stderr),
 	)
-	oauthConf := mustOauthConfFromAsset(ctx, ll)
+	oauthConf := mustOauthConfFromFile(ctx, ll)
 	fmt.Println("Opening web browser to log in with Google.")
 
 	authURL := oauthConf.AuthCodeURL("test")
@@ -194,7 +210,6 @@ func doUpload(srv spree.Spree_CreateClient, filename string, rdr io.Reader, ll z
 				printProto(resp, ll)
 			}
 
-			srv.CloseSend()
 			return offset, nil
 		}
 		if err != nil {
@@ -204,6 +219,11 @@ func doUpload(srv spree.Spree_CreateClient, filename string, rdr io.Reader, ll z
 		msg.Offset = offset
 		msg.Length = int64(n)
 		msg.Data = buf[:n]
+		ll.With(
+			zap.Int64("msg.offset", msg.Offset),
+			zap.Int64("msg.length", msg.Length),
+		).Info("sending message part")
+
 		err = srv.Send(msg)
 		if err != nil {
 			ll.Fatal("error sending message", zap.Error(err))
@@ -246,13 +266,19 @@ func ListCommand(ctx *cli.Context) {
 
 func mustSpreeClient(ctx *cli.Context, ll zap.Logger) spree.SpreeClient {
 	rpcAddr := ctx.GlobalString(rpcAddrFlag.Name)
-	caCert := mustCACertFromAsset(ctx, ll)
-	oauthConfig := mustOauthConfFromAsset(ctx, ll)
+	caCertFile := ctx.String(caCertFileFlag.Name)
+	oauthConfig := mustOauthConfFromFile(ctx, ll)
+	tlsConfig := &tls.Config{}
 
-	certPool := x509.NewCertPool()
-	certPool.AppendCertsFromPEM(caCert)
-	tlsConfig := &tls.Config{
-		RootCAs: certPool,
+	if caCertFile != "" {
+		caCert, err := ioutil.ReadFile(caCertFile)
+		if err != nil {
+			ll.Fatal("could not read ca cert file", zap.Error(err),
+				zap.String("ca.cert.file", caCertFile))
+		}
+		certPool := x509.NewCertPool()
+		certPool.AppendCertsFromPEM(caCert)
+		tlsConfig.RootCAs = certPool
 	}
 
 	// local dev hax
@@ -299,20 +325,21 @@ func mustSpreeClient(ctx *cli.Context, ll zap.Logger) spree.SpreeClient {
 	return spree.NewSpreeClient(conn)
 }
 
-func mustCACertFromAsset(ctx *cli.Context, ll zap.Logger) []byte {
-	caCert, err := Asset("static/shared/certs/spree.ca.crt")
-	if err != nil {
-		ll.Fatal("could not load CA cert file asset", zap.Error(err))
+func mustOauthConfFromFile(ctx *cli.Context, ll zap.Logger) *oauth2.Config {
+	oauthConfFilename := ctx.GlobalString(oauthConfigFileFlag.Name)
+	if oauthConfFilename == "" {
+		// try the default location
+		oauthConfFilename = filepath.Join(configHome(), "oauth.json")
+		if _, err := os.Stat(oauthConfFilename); os.IsNotExist(err) {
+			ll.Fatal("oauth config file not specified or found at default location",
+				zap.String("default", oauthConfFilename))
+		}
 	}
-	return caCert
-}
-
-func mustOauthConfFromAsset(ctx *cli.Context, ll zap.Logger) *oauth2.Config {
-	jsonConf, err := Asset("static/client/oauth.json")
+	jsonConf, err := ioutil.ReadFile(oauthConfFilename)
 	if err != nil {
-		ll.Fatal("could not load oauth config asset", zap.Error(err))
+		ll.Fatal("could not read oauth config file",
+			zap.Error(err), zap.String("oauth.config.file", oauthConfFilename))
 	}
-
 	oauthConf, err := google.ConfigFromJSON(jsonConf, oauthScopes...)
 	if err != nil {
 		ll.Fatal("could not parse JSON oauth config",

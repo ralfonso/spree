@@ -12,4 +12,5 @@ type File interface {
 type Storage interface {
 	Open(filename string) (File, error)
 	Create(filename string) (File, error)
+	Remove(filename string) error
 }
