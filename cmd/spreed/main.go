@@ -9,13 +9,14 @@ import (
 	"strings"
 	"time"
 
+	"go.uber.org/zap"
+
 	"google.golang.org/grpc"
 
 	"github.com/codegangsta/cli"
 	assetfs "github.com/elazarl/go-bindata-assetfs"
 	"github.com/ralfonso/spree"
 	"github.com/ralfonso/spree/auth"
-	"github.com/uber-go/zap"
 )
 
 var Version = "0.2.0"
@@ -31,7 +32,7 @@ func main() {
 }
 
 func serve(ctx *cli.Context) {
-	ll := zap.New(zap.NewJSONEncoder())
+	ll, _ := zap.NewDevelopment()
 	boltKV, err := spree.NewBoltKV(ctx.String(dbFileFlag.Name), ctx.String(dbBucketFlag.Name), ll)
 	if err != nil {
 		ll.Fatal("unable to create BoltKV", zap.Error(err))
@@ -99,7 +100,7 @@ func serve(ctx *cli.Context) {
 	select {}
 }
 
-func mustStringCSV(ctx *cli.Context, strFlag cli.StringFlag, ll zap.Logger) []string {
+func mustStringCSV(ctx *cli.Context, strFlag cli.StringFlag, ll *zap.Logger) []string {
 	raw := ctx.GlobalString(strFlag.Name)
 	if raw == "" {
 		ll.Fatal("must set flag", zap.String("flag.name", strFlag.Name))

@@ -5,10 +5,11 @@ import (
 	"math/rand"
 	"time"
 
+	"go.uber.org/zap"
+
 	"github.com/boltdb/bolt"
 	"github.com/golang/protobuf/proto"
 	hashids "github.com/speps/go-hashids"
-	"github.com/uber-go/zap"
 )
 
 const (
@@ -27,14 +28,14 @@ func init() {
 }
 
 type BoltKV struct {
-	ll     zap.Logger
+	ll     *zap.Logger
 	db     *bolt.DB
 	bucket string
 }
 
 var _ Metadata = &BoltKV{}
 
-func NewBoltKV(dbFile, dbBucketName string, ll zap.Logger) (*BoltKV, error) {
+func NewBoltKV(dbFile, dbBucketName string, ll *zap.Logger) (*BoltKV, error) {
 	db, err := bolt.Open(dbFile, 0600, nil)
 	if err != nil {
 		ll.Error("could not open database file", zap.Error(err))

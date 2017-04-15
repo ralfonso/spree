@@ -13,13 +13,14 @@ import (
 	"strings"
 	"time"
 
+	"go.uber.org/zap"
+
 	"github.com/codegangsta/cli"
 	"github.com/golang/protobuf/jsonpb"
 	"github.com/golang/protobuf/proto"
 	"github.com/ralfonso/spree"
 	"github.com/ralfonso/spree/auth"
 	"github.com/skratchdot/open-golang/open"
-	"github.com/uber-go/zap"
 	"golang.org/x/net/context"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
@@ -36,7 +37,7 @@ var (
 	// global flags
 	rpcAddrFlag = cli.StringFlag{
 		Name:  "rpc.addr",
-		Value: "localhost:4285",
+		Value: "",
 		Usage: "Addr for the remote RPC server",
 	}
 	oauthConfigFileFlag = cli.StringFlag{
@@ -105,10 +106,7 @@ var Commands = []cli.Command{
 }
 
 func AuthCommand(ctx *cli.Context) {
-	ll := zap.New(
-		zap.NewJSONEncoder(),
-		zap.Output(os.Stderr),
-	)
+	ll, _ := zap.NewDevelopment()
 	oauthConf := mustOauthConfFromFile(ctx, ll)
 	fmt.Println("Opening web browser to log in with Google.")
 
@@ -150,10 +148,7 @@ func UploadCommand(ctx *cli.Context) {
 	var rdr io.Reader
 	var err error
 
-	ll := zap.New(
-		zap.NewJSONEncoder(),
-		zap.Output(os.Stderr),
-	)
+	ll, _ := zap.NewDevelopment()
 
 	if src == "-" {
 		if filename == "" {
@@ -186,7 +181,7 @@ func UploadCommand(ctx *cli.Context) {
 		zap.Float64("MiB/s", float64(uploadedBytes/1024)/finish.Seconds()))
 }
 
-func doUpload(srv spree.Spree_CreateClient, filename string, rdr io.Reader, ll zap.Logger) (int64, error) {
+func doUpload(srv spree.Spree_CreateClient, filename string, rdr io.Reader, ll *zap.Logger) (int64, error) {
 	buf := make([]byte, chunkSizeBytes)
 	msg := &spree.CreateRequest{
 		Filename: path.Base(filename),
@@ -248,10 +243,7 @@ func doUpload(srv spree.Spree_CreateClient, filename string, rdr io.Reader, ll z
 }
 
 func ListCommand(ctx *cli.Context) {
-	ll := zap.New(
-		zap.NewJSONEncoder(),
-		zap.Output(os.Stderr),
-	)
+	ll, _ := zap.NewDevelopment()
 	c := mustSpreeClient(ctx, ll)
 	req := &spree.ListRequest{}
 	cctx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
@@ -264,7 +256,7 @@ func ListCommand(ctx *cli.Context) {
 	printProto(resp, ll)
 }
 
-func mustSpreeClient(ctx *cli.Context, ll zap.Logger) spree.SpreeClient {
+func mustSpreeClient(ctx *cli.Context, ll *zap.Logger) spree.SpreeClient {
 	rpcAddr := ctx.GlobalString(rpcAddrFlag.Name)
 	caCertFile := ctx.String(caCertFileFlag.Name)
 	oauthConfig := mustOauthConfFromFile(ctx, ll)
@@ -281,23 +273,29 @@ func mustSpreeClient(ctx *cli.Context, ll zap.Logger) spree.SpreeClient {
 		tlsConfig.RootCAs = certPool
 	}
 
-	// local dev hax
-	rpcParts := strings.Split(rpcAddr, ":")
-	if rpcParts[0] == "localhost" {
-		tlsConfig.InsecureSkipVerify = true
-	}
-
-	creds := credentials.NewTLS(tlsConfig)
-	opts := []grpc.DialOption{
-		grpc.WithTransportCredentials(creds),
-	}
-
 	clientConf, err := getConfig(ll)
 	if err != nil {
 		ll.Fatal("unable to retrieve client configuration")
 	}
 	if clientConf == nil || clientConf.JWT == nil {
 		ll.Fatal("missing token. please use the auth command first")
+	}
+
+	// allow the config file to override only if the flag was not set
+	if rpcAddr == "" {
+		rpcAddr = clientConf.RPCAddr
+	}
+
+	// local dev hax
+	rpcParts := strings.Split(rpcAddr, ":")
+	if rpcParts[0] == "localhost" {
+		tlsConfig.InsecureSkipVerify = true
+	}
+	ll = ll.With(zap.String("rpc.addr", rpcAddr))
+
+	creds := credentials.NewTLS(tlsConfig)
+	opts := []grpc.DialOption{
+		grpc.WithTransportCredentials(creds),
 	}
 
 	cctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -318,6 +316,7 @@ func mustSpreeClient(ctx *cli.Context, ll zap.Logger) spree.SpreeClient {
 
 	opts = append(opts, grpc.WithPerRPCCredentials(jwt))
 
+	ll.Debug("dialing rpc endpoint")
 	conn, err := grpc.Dial(rpcAddr, opts...)
 	if err != nil {
 		ll.Fatal("could not connect", zap.Error(err))
@@ -325,7 +324,7 @@ func mustSpreeClient(ctx *cli.Context, ll zap.Logger) spree.SpreeClient {
 	return spree.NewSpreeClient(conn)
 }
 
-func mustOauthConfFromFile(ctx *cli.Context, ll zap.Logger) *oauth2.Config {
+func mustOauthConfFromFile(ctx *cli.Context, ll *zap.Logger) *oauth2.Config {
 	oauthConfFilename := ctx.GlobalString(oauthConfigFileFlag.Name)
 	if oauthConfFilename == "" {
 		// try the default location
@@ -349,7 +348,7 @@ func mustOauthConfFromFile(ctx *cli.Context, ll zap.Logger) *oauth2.Config {
 	return oauthConf
 }
 
-func printProto(p proto.Message, ll zap.Logger) {
+func printProto(p proto.Message, ll *zap.Logger) {
 	jm := jsonpb.Marshaler{Indent: "    "}
 	out, err := jm.MarshalToString(p)
 	if err != nil {

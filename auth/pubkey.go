@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/uber-go/zap"
+	"go.uber.org/zap"
 )
 
 type keyCache interface {
@@ -29,7 +29,7 @@ type pubkeyCache struct {
 	remoteUrl   string
 	client      *http.Client
 	updateToken chan struct{}
-	ll          zap.Logger
+	ll          *zap.Logger
 }
 
 var _ keyCache = &pubkeyCache{}
@@ -48,7 +48,7 @@ type pubKeyResp struct {
 	Keys pubKeys `json:"keys"`
 }
 
-func newPubkeyCache(remoteUrl string, ll zap.Logger) *pubkeyCache {
+func newPubkeyCache(remoteUrl string, ll *zap.Logger) *pubkeyCache {
 	updateToken := make(chan struct{}, 1)
 
 	// token bucket to only allow one update every 5s

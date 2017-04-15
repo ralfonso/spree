@@ -6,12 +6,13 @@ import (
 	"os"
 	"path/filepath"
 
+	"go.uber.org/zap"
+
 	"github.com/ralfonso/spree/auth"
-	"github.com/uber-go/zap"
 )
 
 // getConfig gets the client config from disk.
-func getConfig(ll zap.Logger) (*auth.ClientConfig, error) {
+func getConfig(ll *zap.Logger) (*auth.ClientConfig, error) {
 	configDir := configHome()
 	configFile := configFileName(configDir)
 	f, err := os.Open(configFile)
@@ -37,7 +38,7 @@ func getConfig(ll zap.Logger) (*auth.ClientConfig, error) {
 }
 
 // storeConfig stores the client config to disk.
-func storeConfig(conf *auth.ClientConfig, ll zap.Logger) error {
+func storeConfig(conf *auth.ClientConfig, ll *zap.Logger) error {
 	jsonConf, err := json.MarshalIndent(conf, "", "  ")
 	if err != nil {
 		return err

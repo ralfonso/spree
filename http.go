@@ -8,15 +8,16 @@ import (
 	"os"
 	"path/filepath"
 
+	"go.uber.org/zap"
+
 	assetfs "github.com/elazarl/go-bindata-assetfs"
 	"github.com/golang/protobuf/jsonpb"
 	"github.com/gorilla/handlers"
 	"github.com/gorilla/mux"
-	"github.com/uber-go/zap"
 )
 
 type HTTPServer struct {
-	ll      zap.Logger
+	ll      *zap.Logger
 	addr    string
 	storage Storage
 	md      Metadata
@@ -30,7 +31,7 @@ const (
 )
 
 func NewHTTPServer(addr string, md Metadata, storage Storage,
-	assetFS *assetfs.AssetFS, ll zap.Logger) *HTTPServer {
+	assetFS *assetfs.AssetFS, ll *zap.Logger) *HTTPServer {
 	return &HTTPServer{
 		ll:      ll,
 		addr:    addr,

@@ -5,7 +5,8 @@ import (
 	"path"
 	"time"
 
-	"github.com/uber-go/zap"
+	"go.uber.org/zap"
+
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -18,14 +19,14 @@ var (
 )
 
 type Server struct {
-	ll      zap.Logger
+	ll      *zap.Logger
 	md      Metadata
 	storage Storage
 }
 
 var _ SpreeServer = &Server{}
 
-func NewServer(md Metadata, storage Storage, ll zap.Logger) *Server {
+func NewServer(md Metadata, storage Storage, ll *zap.Logger) *Server {
 	return &Server{
 		ll:      ll,
 		md:      md,
@@ -47,7 +48,7 @@ func (s *Server) Create(stream Spree_CreateServer) error {
 
 	err = s.md.PutShot(shot)
 	if err != nil {
-		ll.With(zap.Object("shot", shot)).Error("unable to put shot", zap.Error(err))
+		ll.With(zap.Any("shot", shot)).Error("unable to put shot", zap.Error(err))
 		return err
 	}
 	resp := &CreateResponse{
@@ -55,13 +56,13 @@ func (s *Server) Create(stream Spree_CreateServer) error {
 	}
 	err = stream.Send(resp)
 	if err != nil {
-		ll.With(zap.Object("shot", shot)).Error("unable to send shot response", zap.Error(err))
+		ll.With(zap.Any("shot", shot)).Error("unable to send shot response", zap.Error(err))
 		return err
 	}
 	return nil
 }
 
-func (s *Server) cleanupFile(filename string, success bool, ll zap.Logger) {
+func (s *Server) cleanupFile(filename string, success bool, ll *zap.Logger) {
 	if !success {
 		ll.Info("cleaning up unsuccessful upload")
 		err := s.storage.Remove(filename)
@@ -72,7 +73,7 @@ func (s *Server) cleanupFile(filename string, success bool, ll zap.Logger) {
 	}
 }
 
-func (s *Server) newFile(filename string, ll zap.Logger) (File, error) {
+func (s *Server) newFile(filename string, ll *zap.Logger) (File, error) {
 	file, err := s.storage.Create(filename)
 	if err != nil {
 		s.ll.Error("unable to open file", zap.Error(err))
@@ -82,7 +83,7 @@ func (s *Server) newFile(filename string, ll zap.Logger) (File, error) {
 	return file, nil
 }
 
-func (s *Server) handleFileUpload(stream Spree_CreateServer, ll zap.Logger) (*Shot, error) {
+func (s *Server) handleFileUpload(stream Spree_CreateServer, ll *zap.Logger) (*Shot, error) {
 	var file File
 	var filename string
 
@@ -113,6 +114,8 @@ func (s *Server) handleFileUpload(stream Spree_CreateServer, ll zap.Logger) (*Sh
 		if err != nil {
 			return nil, errUnknownFile
 		}
+	} else {
+		return nil, errUnknownFile
 	}
 
 	ll.Info("handling file content", zap.String("filename", filename))
@@ -162,10 +165,12 @@ func (s *Server) handleFileUpload(stream Spree_CreateServer, ll zap.Logger) (*Sh
 
 		in, err = stream.Recv()
 		if err == io.EOF {
+			ll.Info("completed file read")
 			success = ptr > 0
 			break
 		}
 		if err != nil {
+			ll.Info("error reading from stream, aborting transfer")
 			success = false
 			return nil, err
 		}

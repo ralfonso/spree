@@ -5,7 +5,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/uber-go/zap"
+	"go.uber.org/zap"
+
 	"golang.org/x/net/context"
 	"golang.org/x/oauth2"
 	"google.golang.org/grpc/credentials"
@@ -28,6 +29,7 @@ const (
 
 // ClientConfig holds an oauth token (with refresh) and JWT. We have our own struct so we can serialize to json for on-disk conf.
 type ClientConfig struct {
+	RPCAddr    string        `json:"rpc_addr"`
 	OauthToken *oauth2.Token `json:"oauth_token"`
 	JWT        *ClientJWT    `json:"jwt"`
 }
@@ -48,7 +50,7 @@ func (j *ClientJWT) RequireTransportSecurity() bool {
 }
 
 // NewClientJWTFromOauth2 creates a new ClientJWT from an oauth2 token.
-func NewClientJWTFromOauth2(token *oauth2.Token, ll zap.Logger) (*ClientJWT, error) {
+func NewClientJWTFromOauth2(token *oauth2.Token, ll *zap.Logger) (*ClientJWT, error) {
 	jwtExtra := token.Extra("id_token")
 	var jwtStr string
 	var ok bool
@@ -65,11 +67,11 @@ var _ credentials.PerRPCCredentials = &ClientJWT{}
 // Authenticator can validate or refresh JWT tokens.
 type Authenticator struct {
 	keys keyCache
-	ll   zap.Logger
+	ll   *zap.Logger
 }
 
 // NewAuthenticator returns a new Authenticator.
-func NewAuthenticator(ll zap.Logger) *Authenticator {
+func NewAuthenticator(ll *zap.Logger) *Authenticator {
 	return &Authenticator{
 		keys: newPubkeyCache(certUrl, ll),
 		ll:   ll,
